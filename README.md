@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>바나나 영웅 - 수정판</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        #game {
+            border: 2px solid #333;
+            background: #2F4F4F;
+        }
+        
+        #chatContainer {
+            width: 1200px;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #333;
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #chatMessages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        #chatInput {
+            height: 30px;
+            background: #333;
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+        
+        #chatInput:focus {
+            outline: none;
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game" tabindex="1"></canvas>
+    <div id="chatContainer">
+        <div id="chatMessages"></div>
+        <input type="text" id="chatInput" placeholder="명령어를 입력하세요 (예: /level 10, /weapon 체인건)">
+    </div>
+    
+    <script>
+    // 캔버스 설정
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 1200;
+    canvas.height = 800;
+    
+    // 게임 변수들
+    let score = 0;
+    let level = 1;
+    let experience = 0;
+    let experienceToNextLevel = 100;
+    let gameOver = false;
+    let mouseX = 600;
+    let mouseY = 400;
+    let playerHealth = 100;
+    let maxPlayerHealth = 100;
+    let currentWeapon = 0;
+    let ammo = [100, 50, 30, 40, 20, 15, 25, 35, 45, 12, 8, 5, 10, 8, 6, 4, 3, 2, 1, 1, 1, 1, 1, 1, 1];
+    
+    // 무기 생성 관련
+    let lastWeaponSpawn = 0;
+    let weaponSpawnInterval = 2000;
+    
+    // 채팅 시스템
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    
+    // 특수 무기 정보 (10개)
+    const weaponTypes = [
+        { name: "바나나", damage: 10, speed: 8, color: '#FFFF00', grade: 'D', rarity: 0.3 },
+        { name: "체인건", damage: 15, speed: 10, color: '#FF4500', grade: 'D', rarity: 0.25 },
+        { name: "독 총", damage: 5, speed: 8, color: '#32CD32', grade: 'C', rarity: 0.2 },
+        { name: "중력 총", damage: 20, speed: 6, color: '#8A2BE2', grade: 'B', rarity: 0.15 },
+        { name: "음파 총", damage: 30, speed: 15, color: '#00FFFF', grade: 'B', rarity: 0.15 },
+        { name: "번개 총", damage: 25, speed: 20, color: '#FFFF00', grade: 'A', rarity: 0.1 },
+        { name: "플라즈 오브", damage: 35, speed: 8, color: '#FF69B4', grade: 'A', rarity: 0.1 },
+        { name: "양자 총", damage: 40, speed: 18, color: '#FF00FF', grade: 'A', rarity: 0.1 },
+        { name: "시간 총", damage: 0, speed: 10, color: '#FFD700', grade: 'S', rarity: 0.05 },
+        { name: "블랙홀 총", damage: 50, speed: 3, color: '#000000', grade: 'S', rarity: 0.05 }
+    ];
+    
+    // 등급별 색상과 이름
+    const gradeColors = {
+        'D': '#C0C0C0', // 은색
+        'C': '#CD7F32', // 동색
+        'B': '#4169E1', // 파란색
+        'A': '#9370DB', // 보라색
+        'S': '#FFD700'  // 금색
+    };
+    
+    const gradeNames = {
+        'D': '일반',
+        'C': '고급',
+        'B': '희귀',
+        'A': '영웅',
+        'S': '전설'
+    };
+    
+    // 게임 배열들
+    const bullets = [];
+    const enemies = [];
+    const weapons = [];
+    
+    // 플레이어
+    const player = {
+        x: 600,
+        y: 400,
+        width: 20,
+        height: 20,
+        direction: 0
+    };
+    
+    // 키보드 입력 - 완전히 새로운 방식
+    const keys = {};
+    
+    // 키보드 이벤트 리스너
+    window.addEventListener('keydown', function(e) {
+        keys[e.key] = true;
+        console.log('키 누름:', e.key);
+    });
+    
+    window.addEventListener('keyup', function(e) {
+        keys[e.key] = false;
+    });
+    
+    // 마우스 이벤트
+    canvas.addEventListener('mousemove', function(e) {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.clientX - rect.left;
+        mouseY = e.clientY - rect.top;
+    });
+    
+    canvas.addEventListener('click', function(e) {
+        if (ammo[currentWeapon] > 0) {
+            const weapon = weaponTypes[currentWeapon];
+            const bullet = {
+                x: player.x + player.width / 2,
+                y: player.y + player.height / 2,
+                vx: Math.cos(player.direction) * weapon.speed,
+                vy: Math.sin(player.direction) * weapon.speed,
+                damage: weapon.damage + level * 3,
+                color: weapon.color,
+                size: 5
+            };
+            bullets.push(bullet);
+            ammo[currentWeapon]--;
+            console.log('마우스 클릭으로 발사!');
+        }
+    });
+    
+    // 채팅 시스템
+    function addChatMessage(message) {
+        const messageElement = document.createElement('div');
+        messageElement.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        chatMessages.appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    function handleCommand(command) {
+        const parts = command.split(' ');
+        const cmd = parts[0].toLowerCase();
+        
+        switch(cmd) {
+            case '/level':
+                const newLevel = parseInt(parts[1]);
+                if (newLevel >= 1 && newLevel <= 100) {
+                    level = newLevel;
+                    experience = 0;
+                    experienceToNextLevel = level * 100;
+                    maxPlayerHealth = 100 + (level - 1) * 20;
+                    playerHealth = maxPlayerHealth;
+                    addChatMessage(`레벨이 ${level}로 설정되었습니다.`);
+                } else {
+                    addChatMessage('레벨은 1-100 사이여야 합니다.');
+                }
+                break;
+                
+            case '/weapon':
+                const weaponName = parts.slice(1).join(' ');
+                const weaponIndex = weaponTypes.findIndex(w => w.name === weaponName);
+                if (weaponIndex !== -1) {
+                    currentWeapon = weaponIndex;
+                    addChatMessage(`무기가 ${weaponName}으로 변경되었습니다.`);
+                } else {
+                    addChatMessage(`무기 "${weaponName}"을 찾을 수 없습니다.`);
+                }
+                break;
+                
+            case '/grade':
+                const grade = parts[1]?.toUpperCase();
+                if (grade && gradeColors[grade]) {
+                    const gradeWeapons = weaponTypes.filter(w => w.grade === grade);
+                    addChatMessage(`${gradeNames[grade]} 등급 무기들:`);
+                    gradeWeapons.forEach(w => {
+                        addChatMessage(`- ${w.name}`);
+                    });
+                } else {
+                    addChatMessage('사용법: /grade [D/C/B/A/S]');
+                }
+                break;
+                
+            case '/help':
+                addChatMessage('사용 가능한 명령어:');
+                addChatMessage('/level [숫자] - 레벨 설정');
+                addChatMessage('/weapon [무기이름] - 무기 변경');
+                addChatMessage('/grade [등급] - 등급별 무기 목록');
+                addChatMessage('/help - 도움말');
+                break;
+                
+            default:
+                addChatMessage('알 수 없는 명령어입니다. /help로 도움말을 확인하세요.');
+        }
+    }
+    
+    // 채팅 입력 처리
+    chatInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            const command = chatInput.value.trim();
+            if (command) {
+                if (command.startsWith('/')) {
+                    handleCommand(command);
+                } else {
+                    addChatMessage(`채팅: ${command}`);
+                }
+                chatInput.value = '';
+            }
+        }
+    });
+    
+    // 무기 생성
+    function createWeapon() {
+        const now = Date.now();
+        if (now - lastWeaponSpawn > weaponSpawnInterval) {
+            const random = Math.random();
+            let selectedWeapon = null;
+            let cumulativeRarity = 0;
+            
+            // 누적 확률로 무기 선택
+            for (let weapon of weaponTypes) {
+                cumulativeRarity += weapon.rarity;
+                if (random <= cumulativeRarity) {
+                    selectedWeapon = weapon;
+                    break;
+                }
+            }
+            
+            if (selectedWeapon && weapons.length < 10) {
+                const weapon = {
+                    x: Math.random() * (canvas.width - 20),
+                    y: Math.random() * (canvas.height - 20),
+                    width: 20,
+                    height: 20,
+                    type: selectedWeapon
+                };
+                weapons.push(weapon);
+                
+                // 특수 무기가 생성되면 채팅으로 알림
+                if (selectedWeapon.grade !== 'D') {
+                    addChatMessage(`특수 무기 발견: ${selectedWeapon.name} [${gradeNames[selectedWeapon.grade]}]`);
+                }
+            }
+            
+            lastWeaponSpawn = now;
+            weaponSpawnInterval = Math.max(1000, 3000 - (level * 100));
+        }
+    }
+    
+    // 적 생성
+    function createEnemy() {
+        return {
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            width: 20,
+            height: 20,
+            health: 30 + level * 5,
+            damage: 10 + level * 2,
+            score: 10,
+            exp: 5,
+            speed: 1 + level * 0.5
+        };
+    }
+    
+    // 플레이어 업데이트 - 완전히 새로운 방식
+    function updatePlayer() {
+        // 이동 - 더 명확한 키 감지
+        if (keys['w'] || keys['W'] || keys['ArrowUp']) {
+            player.y -= 5;
+            console.log('위로 이동');
+        }
+        if (keys['s'] || keys['S'] || keys['ArrowDown']) {
+            player.y += 5;
+            console.log('아래로 이동');
+        }
+        if (keys['a'] || keys['A'] || keys['ArrowLeft']) {
+            player.x -= 5;
+            console.log('왼쪽으로 이동');
+        }
+        if (keys['d'] || keys['D'] || keys['ArrowRight']) {
+            player.x += 5;
+            console.log('오른쪽으로 이동');
+        }
+        
+        // 경계 체크
+        if (player.x < 0) player.x = 0;
+        if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
+        if (player.y < 0) player.y = 0;
+        if (player.y > canvas.height - player.height) player.y = canvas.height - player.height;
+        
+        // 방향 계산
+        player.direction = Math.atan2(mouseY - player.y, mouseX - player.x);
+        
+        // 발사 - 스페이스바
+        if (keys[' '] && ammo[currentWeapon] > 0) {
+            const weapon = weaponTypes[currentWeapon];
+            const bullet = {
+                x: player.x + player.width / 2,
+                y: player.y + player.height / 2,
+                vx: Math.cos(player.direction) * weapon.speed,
+                vy: Math.sin(player.direction) * weapon.speed,
+                damage: weapon.damage + level * 3,
+                color: weapon.color,
+                size: 5
+            };
+            bullets.push(bullet);
+            ammo[currentWeapon]--;
+            console.log('스페이스바로 발사!');
+        }
+    }
+    
+    // 총알 업데이트
+    function updateBullets() {
+        for (let i = bullets.length - 1; i >= 0; i--) {
+            const bullet = bullets[i];
+            bullet.x += bullet.vx;
+            bullet.y += bullet.vy;
+            
+            // 화면 밖으로 나가면 제거
+            if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+                bullets.splice(i, 1);
+            }
+        }
+    }
+    
+    // 적 업데이트
+    function updateEnemies() {
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const enemy = enemies[i];
+            
+            // 플레이어 방향으로 이동
+            const dx = player.x - enemy.x;
+            const dy = player.y - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 0) {
+                enemy.x += (dx / distance) * enemy.speed;
+                enemy.y += (dy / distance) * enemy.speed;
+            }
+            
+            // 화면 밖으로 너무 나가면 제거
+            if (enemy.x < -50 || enemy.x > canvas.width + 50 || enemy.y < -50 || enemy.y > canvas.height + 50) {
+                enemies.splice(i, 1);
+            }
+        }
+    }
+    
+    // 충돌 감지
+    function checkCollisions() {
+        // 총알과 적 충돌
+        for (let i = bullets.length - 1; i >= 0; i--) {
+            const bullet = bullets[i];
+            for (let j = enemies.length - 1; j >= 0; j--) {
+                const enemy = enemies[j];
+                if (bullet.x < enemy.x + enemy.width &&
+                    bullet.x + bullet.size > enemy.x &&
+                    bullet.y < enemy.y + enemy.height &&
+                    bullet.y + bullet.size > enemy.y) {
+                    
+                    enemy.health -= bullet.damage;
+                    bullets.splice(i, 1);
+                    
+                    if (enemy.health <= 0) {
+                        score += enemy.score;
+                        experience += enemy.exp;
+                        enemies.splice(j, 1);
+                        
+                        if (experience >= experienceToNextLevel) {
+                            level++;
+                            experience -= experienceToNextLevel;
+                            experienceToNextLevel = level * 100;
+                            maxPlayerHealth += 20;
+                            playerHealth = maxPlayerHealth;
+                            addChatMessage(`레벨업! 레벨 ${level}`);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // 무기 수집
+        for (let i = weapons.length - 1; i >= 0; i--) {
+            const weapon = weapons[i];
+            if (player.x < weapon.x + weapon.width &&
+                player.x + player.width > weapon.x &&
+                player.y < weapon.y + weapon.height &&
+                player.y + player.height > weapon.y) {
+                
+                const weaponTypeIndex = weaponTypes.findIndex(w => w.name === weapon.type.name);
+                if (weaponTypeIndex !== -1) {
+                    currentWeapon = weaponTypeIndex;
+                    ammo[currentWeapon] = Math.max(ammo[currentWeapon], 50);
+                    addChatMessage(`무기 획득: ${weapon.type.name} [${gradeNames[weapon.type.grade]}]`);
+                }
+                weapons.splice(i, 1);
+            }
+        }
+        
+        // 플레이어와 적 충돌
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const enemy = enemies[i];
+            if (player.x < enemy.x + enemy.width &&
+                player.x + player.width > enemy.x &&
+                player.y < enemy.y + enemy.height &&
+                player.y + player.height > enemy.y) {
+                
+                playerHealth -= enemy.damage;
+                enemies.splice(i, 1);
+                
+                if (playerHealth <= 0) {
+                    gameOver = true;
+                }
+            }
+        }
+    }
+    
+    // 그리기 함수들
+    function drawPlayer() {
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+        
+        // 얼굴
+        ctx.fillStyle = '#FFD700';
+        ctx.beginPath();
+        ctx.arc(player.x + 10, player.y + 7, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 눈
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(player.x + 8, player.y + 5, 2, 0, Math.PI * 2);
+        ctx.arc(player.x + 12, player.y + 5, 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    function drawBullets() {
+        bullets.forEach(bullet => {
+            ctx.fillStyle = bullet.color;
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, bullet.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+    
+    function drawEnemies() {
+        enemies.forEach(enemy => {
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+            
+            // 체력바
+            const healthPercent = enemy.health / (30 + level * 5);
+            ctx.fillStyle = '#00FF00';
+            ctx.fillRect(enemy.x, enemy.y - 5, enemy.width * healthPercent, 3);
+        });
+    }
+    
+    function drawWeapons() {
+        weapons.forEach(weapon => {
+            ctx.fillStyle = weapon.type.color;
+            ctx.fillRect(weapon.x, weapon.y, weapon.width, weapon.height);
+            
+            // 등급별 테두리
+            ctx.strokeStyle = gradeColors[weapon.type.grade];
+            ctx.lineWidth = 2;
+            ctx.strokeRect(weapon.x - 1, weapon.y - 1, weapon.width + 2, weapon.height + 2);
+            
+            // 무기 이름
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fillText(weapon.type.name, weapon.x, weapon.y - 5);
+        });
+    }
+    
+    function drawUI() {
+        // 체력바
+        ctx.fillStyle = '#FF0000';
+        ctx.fillRect(10, 10, 200, 20);
+        ctx.fillStyle = '#00FF00';
+        ctx.fillRect(10, 10, (playerHealth / maxPlayerHealth) * 200, 20);
+        
+        ctx.fillStyle = 'white';
+        ctx.font = '16px Arial';
+        ctx.fillText(`체력: ${playerHealth}/${maxPlayerHealth}`, 220, 25);
+        
+        // 점수, 레벨, 경험치
+        ctx.fillText(`점수: ${score}`, 10, 50);
+        ctx.fillText(`레벨: ${level}`, 150, 50);
+        ctx.fillText(`경험치: ${experience}/${experienceToNextLevel}`, 250, 50);
+        
+        // 현재 무기 정보
+        const currentWeaponInfo = weaponTypes[currentWeapon];
+        ctx.fillStyle = gradeColors[currentWeaponInfo.grade];
+        ctx.fillText(`${currentWeaponInfo.name} [${gradeNames[currentWeaponInfo.grade]}]`, 10, 80);
+        ctx.fillStyle = 'white';
+        ctx.fillText(`탄약: ${ammo[currentWeapon]}`, 200, 80);
+        ctx.fillText(`데미지: ${currentWeaponInfo.damage + (level * 3)}`, 300, 80);
+        
+        // 조작법
+        ctx.font = '14px Arial';
+        ctx.fillText('WASD 또는 화살표키: 이동', 10, 110);
+        ctx.fillText('마우스: 조준 및 클릭으로 발사', 10, 130);
+        ctx.fillText('스페이스바: 발사', 10, 150);
+        ctx.fillText('Enter: 채팅창 열기', 10, 170);
+    }
+    
+    function drawGameOver() {
+        ctx.fillStyle = 'red';
+        ctx.font = '48px Arial';
+        ctx.fillText('게임 오버!', canvas.width / 2 - 100, canvas.height / 2);
+        ctx.font = '24px Arial';
+        ctx.fillText('최종 점수: ' + score, canvas.width / 2 - 80, canvas.height / 2 + 40);
+        ctx.fillText('최종 레벨: ' + level, canvas.width / 2 - 80, canvas.height / 2 + 70);
+    }
+    
+    // 적 자동 생성 (1초마다)
+    setInterval(function() {
+        if (!gameOver && enemies.length < 20) {
+            enemies.push(createEnemy());
+        }
+    }, 1000);
+    
+    // 게임 루프
+    function gameLoop() {
+        if (gameOver) {
+            drawGameOver();
+            return;
+        }
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        updatePlayer();
+        updateBullets();
+        updateEnemies();
+        createWeapon();
+        checkCollisions();
+        
+        drawPlayer();
+        drawBullets();
+        drawEnemies();
+        drawWeapons();
+        drawUI();
+        
+        requestAnimationFrame(gameLoop);
+    }
+    
+    // 초기화 및 게임 시작
+    addChatMessage('게임이 시작되었습니다!');
+    addChatMessage('조작법: WASD/화살표키로 이동, 마우스로 조준 및 클릭으로 발사');
+    addChatMessage('명령어: /level [숫자], /weapon [무기이름], /grade [등급], /help');
+    addChatMessage('등급: D(일반), C(고급), B(희귀), A(영웅), S(전설)');
+    addChatMessage('특수 무기들이 이제 더 자주 등장합니다!');
+    addChatMessage('게임 화면을 클릭하면 포커스가 설정됩니다!');
+    
+    gameLoop();
+    console.log("바나나 영웅 게임 시작!");
+    </script>
+</body>
+</html> 
